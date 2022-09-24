@@ -1,3 +1,19 @@
+How does a database work ?
+
+- what format is data saved in ? (in memory and on disk)
+- when does it move from memory to disk ?
+- why can there only be one primary key per table ?
+- how does rolling back a transaction work ?
+- how are indexes formatted ?
+- when and how does a full table scan happen ?
+- what format is a prepared statemant saved in ?
+
+"what i can not create i do not understand." - Richard Feynman
+
+***************************************************************
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
 a query goes through a chain of components in order to retrieve
 or modify data.
 
@@ -23,6 +39,19 @@ __virtual machine
     B-tree. The VM is essentially a big switch statement on the 
     type of bytecode instruction.
 
-__
+__B tree
+    consists of many nodes. Each node is one page in length. The B tree
+    can retrieve a page from disk or save it back to disk by issuing 
+    commands to the pager.
 
+
+__pager
+    the pager recieves instructions to read or write pages of data. It is
+    responsible for reading/writing at appropriate offsets in the database
+    file. It also keeps a cache of recently-accessed pages in memory, and 
+    determines when those pages need to be written back to disk.
+
+__os interface
+    the os layer is the layer that differs depending on which operating 
+    system sqlite was compiled for .
 
