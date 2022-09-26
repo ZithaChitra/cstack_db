@@ -36,26 +36,26 @@ describe 'database' do
       ])
     end
   
-    # it 'keeps data after closing connection' do
-    #   result1 = run_script([
-    #     "insert 1 user1 person1@example.com",
-    #     ".exit",
-    #   ])
-    #   expect(result1).to match_array([
-    #     "db > Executed.",
-    #     "db > ",
-    #   ])
+    it 'keeps data after closing connection' do
+      result1 = run_script([
+        "insert 1 user1 person1@example.com",
+        ".exit",
+      ])
+      expect(result1).to match_array([
+        "db > Executed.",
+        "db > ",
+      ])
   
-    #   result2 = run_script([
-    #     "select",
-    #     ".exit",
-    #   ])
-    #   expect(result2).to match_array([
-    #     "db > (1, user1, person1@example.com)",
-    #     "Executed.",
-    #     "db > ",
-    #   ])
-    # end
+      result2 = run_script([
+        "select",
+        ".exit",
+      ])
+      expect(result2).to match_array([
+        "db > (1, user1, person1@example.com)",
+        "Executed.",
+        "db > ",
+      ])
+    end
   
     it 'prints error message when table is full' do
         script = (1..1401).map do |i|
