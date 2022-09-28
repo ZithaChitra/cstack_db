@@ -55,3 +55,66 @@ __os interface
     the os layer is the layer that differs depending on which operating 
     system sqlite was compiled for .
 
+
+***************************************************************
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+
+B-Tree
+
+the B-Tree is the date structure SQLite uses to represent both
+"tables" and "indexes", so it's a pretty central idea.
+
+why a tree data structure for a database ?
+    - searching for a particular value is fast (logarithmic time)
+    - inserting / deleting a value you've already found is fast 
+        (constant-ish time to rebalance)
+    - traversing a range of values is fast (unlike a hash map)
+
+
+(note)  a B-Tree is different from a binary tree (the "B" probably stands for the
+        inventor's name, but could also stand for "balanced") 
+
+unlike a binary tree, each node in a B-Tree can have more than 2 children.
+each node can have up to "m" children, where "m" is the tree's "order".
+to keep the tree mostly balanced, we say nodes must have at least "m/2"
+children (rounded up).
+exceptions:
+    - leaf nodes have 0 children
+    - the root node can have fewer than "m" children but must have at least 2
+    - if the root node is a leaf node (the only node), it still has 0 children 
+
+
+SQLite uses a B-Tree to store the indexes. To store tables SQLite uses a vatiation 
+called a B+ Tree.
+
+                                    B-TREE	            B+ TREE
+Pronounced	                        “Bee Tree”	        “Bee Plus Tree”
+Used to store	                    Indexes	            Tables
+Internal nodes store keys	        Yes	                Yes
+Internal nodes store values	        Yes	                No
+Number of children per node	        Less	            More
+Internal nodes vs. leaf nodes	    Same structure	    Different structure
+
+
+nodes with children are called "internal" nodes. Internal nodes and leaf nodes
+are structured differently:
+
+FOR AN ORDER-M TREE…                INTERNAL NODE	                    LEAF NODE
+Stores                              keys and pointers to children       keys and values
+Number of keys	                    up to m-1	                        as many as will fit
+Number of pointers	                number of keys + 1	                none
+Number of values	                none	                            number of keys
+Key purpose	                        used for routing	                paired with value
+Stores values?	                    No	                                Yes
+
+
+
+
+
+
+
+
+
+
