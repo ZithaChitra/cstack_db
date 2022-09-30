@@ -137,8 +137,8 @@ const uint32_t LEAF_NODE_MAX_CELLS          = LEAF_NODE_SPACE_FOR_CELLS / LEAF_N
 
 #define size_of_attribute(Struct, Attribute) sizeof(((Struct*)0)->Attribute)
 
-const uint32_t ID_SIZE          = size_of_attribute(Row, id);
 const uint32_t USERNAME_SIZE    = size_of_attribute(Row, username);
+const uint32_t ID_SIZE          = size_of_attribute(Row, id);
 const uint32_t EMAIL_SIZE       = size_of_attribute(Row, email);
 
 const uint32_t ID_OFFSET        = 0;
@@ -150,9 +150,6 @@ const uint32_t PAGE_SIZE        = 4096;
 
 #define TABLE_MAX_PAGES         100
 
-const uint32_t ROWS_PER_PAGE    = PAGE_SIZE / ROW_SIZE;
-const uint32_t TABLE_MAX_ROWS   = ROWS_PER_PAGE * TABLE_MAX_PAGES;
-
 
 // the pager accesses the page cache and the file.
 // the Table object will make requests for pages 
@@ -162,6 +159,7 @@ typedef struct
 
     int         file_descriptor;
     uint32_t    file_length;
+    uint32_t    num_pages;
     void*       pages[TABLE_MAX_PAGES];
 
 } Pager;
@@ -171,8 +169,8 @@ typedef struct
 typedef struct
 {
 
-    uint32_t    num_rows;
     Pager*      pager;
+    uint32_t    root_page_num;
 
 } Table;
 
@@ -181,35 +179,11 @@ typedef struct
 {
 
     Table*      table;
-    uint32_t    row_num;
+    uint32_t    page_num;
+    uint32_t    cell_num;
     bool        end_of_table;
 
 } Cursor;
-
-
-Cursor*
-table_start(Table* table)
-{
-    Cursor* cursor = (Cursor*)malloc(sizeof(Cursor));
-    cursor->table = table;
-    cursor->row_num = 0;
-    cursor->end_of_table = (table->num_rows == 0); 
-
-    return cursor;
-}
-
-
-Cursor*
-table_end(Table* table)
-{
-    Cursor* cursor = (Cursor*)malloc(sizeof(Cursor));
-    cursor->table = table;
-    cursor->row_num = table->num_rows;
-    cursor->end_of_table = true;
-
-    return cursor;
-}
-
 
 uint32_t*
 leaf_node_num_cells(void* node)
@@ -221,7 +195,7 @@ leaf_node_num_cells(void* node)
 void*
 leaf_node_cell(void* node, uint32_t cell_num)
 {
-    return node * LEAF_NODE_HEADER_SIZE + cell_num * LEAF_NODE_CELL_SIZE;
+    return node + LEAF_NODE_HEADER_SIZE + (cell_num * LEAF_NODE_CELL_SIZE);
 }
 
 
@@ -245,6 +219,38 @@ initialize_leaf_node(void* node)
 }
 
 
+Cursor*
+table_start(Table* table)
+{
+    Cursor* cursor = (Cursor*)malloc(sizeof(Cursor));
+    cursor->table = table;
+
+    cursor->page_num = table->root_page_num;
+    cursor->cell_num = 0;
+
+
+    void* root_node = get_page(table->pager, table->root_page_num);
+    uint32_t num_cells = *leaf_node_num_cells(root_node);
+    cursor->end_of_table = (num_cells == 0);
+
+    return cursor;
+}
+
+
+Cursor*
+table_end(Table* table)
+{
+    Cursor* cursor = (Cursor*)malloc(sizeof(Cursor));
+    cursor->table = table;
+    cursor->page_num =  table->root_page_num;
+
+    void* root_node = get_page(table->pager, table->root_page_num);
+    uint32_t num_cells = *leaf_node_num_cells(root_node);
+    cursor->cell_num = num_cells;
+    cursor->end_of_table = true;
+
+    return cursor;
+}
 
 
 void
@@ -304,7 +310,11 @@ get_page(Pager* pager, uint32_t page_num)
             }
         }
 
+        // its a new page
         pager->pages[page_num] = page;
+        if(page_num >= pager->num_pages){
+            pager->num_pages += 1;
+        }
     }
 
     return pager->pages[page_num];
@@ -343,14 +353,10 @@ pager_flush(Pager* pager, uint32_t page_num)
 void*
 cursor_value(Cursor* cursor)
 {
-    uint32_t row_num = cursor->row_num;
-    uint32_t page_num = row_num / ROWS_PER_PAGE;
 
-    void* page  = get_page(cursor->table->pager, page_num);
+    void* page  = get_page(cursor->table->pager, cursor->page_num);
 
-    uint32_t row_offset = row_num % ROWS_PER_PAGE;
-    uint32_t byte_offset = row_offset * ROW_SIZE;
-    return page + byte_offset;
+    return leaf_node_value(page, cursor->cell_num);
 }
 
 
@@ -385,6 +391,12 @@ pager_open(const char* filename)
     Pager* pager = (Pager*)malloc(sizeof(Pager));
     pager->file_descriptor = fd;
     pager->file_length = file_length;
+    pager->num_pages = (file_length / PAGE_SIZE);
+
+    if(file_length % PAGE_SIZE != 0){
+        printf("DB file is not a whole number of pages. Corrupt file.\n");
+        exit(EXIT_FAILURE);
+    }
 
     for(uint32_t i = 0; i < TABLE_MAX_PAGES; i++){
         pager->pages[i] = NULL;
@@ -658,7 +670,6 @@ main(int argc, char* argv[])
                 printf("Error: Table full.\n");
                 break;
         }
-
    } 
 
     return 0;
