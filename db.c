@@ -89,6 +89,28 @@ typedef struct {
 } Statement;
 
 
+
+
+// Table Row Constants
+
+#define size_of_attribute(Struct, Attribute) sizeof(((Struct*)0)->Attribute)
+
+const uint32_t USERNAME_SIZE    = size_of_attribute(Row, username);
+const uint32_t ID_SIZE          = size_of_attribute(Row, id);
+const uint32_t EMAIL_SIZE       = size_of_attribute(Row, email);
+
+const uint32_t ID_OFFSET        = 0;
+const uint32_t USERNAME_OFFSET  = ID_OFFSET + ID_SIZE;
+const uint32_t EMAIL_OFFSET     = USERNAME_OFFSET + USERNAME_SIZE;
+
+const uint32_t ROW_SIZE         = ID_SIZE + USERNAME_SIZE + ID_SIZE;
+const uint32_t PAGE_SIZE        = 4096;
+
+#define TABLE_MAX_PAGES         100
+
+
+// the pager accesses the page cache and the file.
+// the Table object will make requests for pages 
 // B-Tree constants
 
 /*
@@ -129,27 +151,6 @@ const uint32_t LEAF_NODE_CELL_SIZE          = LEAF_NODE_KEY_SIZE + LEAF_NODE_VAL
 const uint32_t LEAF_NODE_SPACE_FOR_CELLS    = PAGE_SIZE - LEAF_NODE_HEADER_SIZE;
 const uint32_t LEAF_NODE_MAX_CELLS          = LEAF_NODE_SPACE_FOR_CELLS / LEAF_NODE_CELL_SIZE;
 
-
-// Table Row Constants
-
-#define size_of_attribute(Struct, Attribute) sizeof(((Struct*)0)->Attribute)
-
-const uint32_t USERNAME_SIZE    = size_of_attribute(Row, username);
-const uint32_t ID_SIZE          = size_of_attribute(Row, id);
-const uint32_t EMAIL_SIZE       = size_of_attribute(Row, email);
-
-const uint32_t ID_OFFSET        = 0;
-const uint32_t USERNAME_OFFSET  = ID_OFFSET + ID_SIZE;
-const uint32_t EMAIL_OFFSET     = USERNAME_OFFSET + USERNAME_SIZE;
-
-const uint32_t ROW_SIZE         = ID_SIZE + USERNAME_SIZE + ID_SIZE;
-const uint32_t PAGE_SIZE        = 4096;
-
-#define TABLE_MAX_PAGES         100
-
-
-// the pager accesses the page cache and the file.
-// the Table object will make requests for pages 
 // through the Pager
 typedef struct
 {
@@ -215,6 +216,9 @@ initialize_leaf_node(void* node)
     *leaf_node_num_cells(node) = 0;
 }
 
+
+void*
+get_page(Pager* pager, uint32_t page_num);
 
 Cursor*
 table_start(Table* table)
@@ -492,6 +496,16 @@ db_close(Table* table)
     free(table);    
 }
 
+void print_leaf_node(void* node) {
+    uint32_t num_cells = *leaf_node_num_cells(node);
+    printf("leaf (size %d)\n", num_cells);
+    for (uint32_t i = 0; i < num_cells; i++) {
+        uint32_t key = *leaf_node_key(node, i);
+        printf("  - %d : %d\n", i, key);
+    }
+
+    return;
+}
 
 MetaCommandResult 
 do_meta_command(InputBuffer* input_buffer, Table* table)
@@ -500,6 +514,16 @@ do_meta_command(InputBuffer* input_buffer, Table* table)
         close_input_buffer(input_buffer);
         db_close(table);
         exit(EXIT_SUCCESS);
+    }
+    else if (strcmp(input_buffer->buffer, ".btree") == 0) {
+        printf("Tree:\n");
+        print_leaf_node(get_page(table->pager, 0));
+        return META_COMMAND_SUCCESS;
+    }
+    else if(strcmp(input_buffer->buffer, ".constants") == 0){
+        printf("Constants:\n");
+        print_constants();
+        return META_COMMAND_SUCCESS;
     }
     else{
         return META_COMMAND_UNRECOGNIZED_COMMAND;
@@ -567,14 +591,21 @@ execute_insert(Statement* statement, Table* table)
     Row* row_to_insert = &(statement->row_to_insert);
     Cursor* cursor = table_end(table);
 
-    serialize_row(row_to_insert, cursor_value(cursor));
-    table->num_rows += 1;
+    leaf_node_insert(cursor, row_to_insert->id, row_to_insert);
 
     free(cursor);
 
     return EXECUTE_SUCCESS;
 }
 
+void print_constants() {
+    printf("ROW_SIZE: %d\n", ROW_SIZE);
+    printf("COMMON_NODE_HEADER_SIZE: %d\n", COMMON_NODE_HEADER_SIZE);
+    printf("LEAF_NODE_HEADER_SIZE: %d\n", LEAF_NODE_HEADER_SIZE);
+    printf("LEAF_NODE_CELL_SIZE: %d\n", LEAF_NODE_CELL_SIZE);
+    printf("LEAF_NODE_SPACE_FOR_CELLS: %d\n", LEAF_NODE_SPACE_FOR_CELLS);
+    printf("LEAF_NODE_MAX_CELLS: %d\n", LEAF_NODE_MAX_CELLS);
+}
 
 ExecuteResult 
 execute_select(Statement* statement, Table* table)
