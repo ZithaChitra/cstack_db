@@ -19,10 +19,7 @@ typedef enum
     NODE_INTERNAL,
     NODE_LEAF
 
-}
-
-
-
+};
 
 
 typedef struct {
@@ -199,7 +196,7 @@ leaf_node_cell(void* node, uint32_t cell_num)
 }
 
 
-uint32_t
+uint32_t*
 leaf_node_key(void* node, uint32_t cell_num)
 {
     return leaf_node_cell(node, cell_num);   
@@ -310,8 +307,9 @@ get_page(Pager* pager, uint32_t page_num)
             }
         }
 
-        // its a new page
         pager->pages[page_num] = page;
+
+        // its a new page
         if(page_num >= pager->num_pages){
             pager->num_pages += 1;
         }
@@ -364,10 +362,14 @@ cursor_value(Cursor* cursor)
 void
 cursor_advance(Cursor* cursor)
 {
-    cursor->row_num += 1;
-    if(cursor->row_num >= cursor->table->num_rows){
-        cursor->end_of_table = true;
-    }
+    uint32_t page_num = cursor->page_num;
+    void* node = get_page(cursor->table->pager, page_num); 
+    
+   cursor->cell_num += 1;
+   if(cursor->cell_num >= (*leaf_node_num_cells(node))){
+    cursor->end_of_table = true;
+   } 
+    
 }
 
 
@@ -406,6 +408,34 @@ pager_open(const char* filename)
 }
 
 
+void
+leaf_node_insert(Cursor* cursor, uint32_t key, Row* value)
+{
+    void* node = get_page(cursor->table->pager, cursor->page_num);
+
+    uint32_t num_cells = *leaf_node_num_cells(node);
+    if(num_cells >= LEAF_NODE_MAX_CELLS){
+        // node full
+        printf("Need to implement splitting a leaf node. \n");
+        exit(EXIT_FAILURE);
+    }
+
+
+    if(cursor->cell_num < num_cells){
+        // make room for a new cell
+        for(uint32_t i = num_cells; i > cursor->cell_num; i--){
+            memcpy(leaf_node_cell(node, i), leaf_node_cell(node, i - 1), LEAF_NODE_CELL_SIZE);            
+        }
+    }
+
+    *(leaf_node_num_cells(node)) += 1;
+    *(leaf_node_key(node, cursor->cell_num)) = key;
+    serialize_row(value, leaf_node_value(node, cursor->cell_num));
+
+
+
+}
+
 
 Table* 
 db_open(const char* filename)
@@ -415,8 +445,15 @@ db_open(const char* filename)
     uint32_t num_rows = pager->file_length / ROW_SIZE;
 
     Table* table = (Table*)malloc(sizeof(Table));
-    table->num_rows = num_rows;
     table->pager = pager;
+    table->root_page_num = 0;
+
+    if(pager->num_pages == 0){
+      // new database file. Initialize page 0 as leaf node.  
+      void* root_node = get_page(pager, 0);
+      initialize_leaf_node(root_node);
+    }
+    
 
     return table;
 }
@@ -522,7 +559,8 @@ prepare_statement(InputBuffer* input_buffer, Statement* statement)
 ExecuteResult 
 execute_insert(Statement* statement, Table* table)
 {
-    if(table->num_rows >= TABLE_MAX_ROWS){
+    void* node = get_page(table->pager, table->root_page_num);
+    if((*leaf_node_num_cells(node) >= LEAF_NODE_MAX_CELLS)){
         return EXECUTE_TABLE_FULL;
     }
 
