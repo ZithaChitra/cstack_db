@@ -1,0 +1,50 @@
+guaranteed height of O(log n) for n n items
+
+__red-black tree
+    - red-black trees are a specific type of
+      balanced search trees
+
+    _creteria for a red-black tree_
+    1. a node is either red or black
+    2. the root and leaves (NIL) are always black
+    3. if a node is red then it's children are black
+    4. all paths from a node to its NIL descendents 
+       contain the same number of black nodes.
+
+    _extra notes_
+    1. nodes require one storage bit to keep track of color
+    2. the longest path (root to furthest NIL) is no more than
+       twice the length of the shortest path (root to nearest NIL)
+       - shortest path: all black nodes
+       - longest path: alternating red and black
+
+
+__operations
+1. search - O(log n)
+2. insert - O(log n) - requires rotation to maintain properties of red-black trees
+3. remove - O(log n) - requires rotation
+space     - O(n)
+
+
+__rotations__
+    time complexity -> O(1) -> just changing some pointers around
+    "insert" and "delete" operation may alter the structure of the tree
+    such that it violates the red-black tree rules_. so rotations:
+    1. alters the structure of a tree by rearranging the subtrees
+    2. the goal is to descrease the height of the tree
+        - red-black trees: max height of O(log n)
+        - we can decrease the height by:
+            a) moving larger subtrees up the tree
+            b) moving smaller subtrees down the tree
+    3. rotations do not affect the order of elements
+
+
+    __rotation types
+        1. left-rotate
+        2. right-rotate
+
+
+__insert__
+    _strategy:
+        1. insert Z and color it red
+        2. recolor and rotate nodes to fix violation
