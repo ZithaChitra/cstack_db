@@ -417,7 +417,6 @@ cursor_value(Cursor* cursor)
 {
 
     void* page  = get_page(cursor->table->pager, cursor->page_num);
-
     return leaf_node_value(page, cursor->cell_num);
 }
 
@@ -471,6 +470,33 @@ pager_open(const char* filename)
     return pager;
 }
 
+uint32_t
+get_unused_page_num(Pager* pager)
+{
+
+}
+
+/* 
+    If there is no space on the leaf node, we would split the existing entries residing there and 
+    the new one (being inserted) into two equal halves: lower and upper halves. 
+    (Keys on the upper half are strictly greater than those on the lower half.) We allocate a 
+    new leaf node, and move the upper half into the new node.
+ */
+void 
+leaf_node_split_and_insert(Cursor* cursor,uint32_t key, Row* value)
+{
+    /* 
+        create a new node and move half the cells over.
+        insert the new value in one of the two nodes.
+        update parent or create a new parent.
+    */
+
+   void* old_node = get_page(cursor->table->pager, cursor->page_num);
+   uint32_t new_page_num = get_unused_page_num(cursor->table->pager);
+   void* new_node = get_page(cursor->table->pager, new_page_num);
+   initialize_leaf_node(new_node);
+}
+
 
 void
 leaf_node_insert(Cursor* cursor, uint32_t key, Row* value)
@@ -480,10 +506,10 @@ leaf_node_insert(Cursor* cursor, uint32_t key, Row* value)
     uint32_t num_cells = *leaf_node_num_cells(node);
     if(num_cells >= LEAF_NODE_MAX_CELLS){
         // node full
-        printf("Need to implement splitting a leaf node. \n");
-        exit(EXIT_FAILURE);
+        leaf_node_split_and_insert(cursor, key, value);
     }
-
+    cursor->cell_num = 2;
+    num_cells = 4;
 
     if(cursor->cell_num < num_cells){
         // make room for a new cell
@@ -495,9 +521,6 @@ leaf_node_insert(Cursor* cursor, uint32_t key, Row* value)
     *(leaf_node_num_cells(node)) += 1;
     *(leaf_node_key(node, cursor->cell_num)) = key;
     serialize_row(value, leaf_node_value(node, cursor->cell_num));
-
-
-
 }
 
 
@@ -645,9 +668,6 @@ execute_insert(Statement* statement, Table* table)
 {
     void* node = get_page(table->pager, table->root_page_num);
     uint32_t num_cells = (*leaf_node_num_cells(node));
-    if((num_cells >= LEAF_NODE_MAX_CELLS)){
-        return EXECUTE_TABLE_FULL;
-    }
 
     Row* row_to_insert = &(statement->row_to_insert);
     uint32_t key_to_insert = row_to_insert->id;
