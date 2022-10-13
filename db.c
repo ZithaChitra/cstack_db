@@ -152,6 +152,20 @@ const uint32_t LEAF_NODE_CELL_SIZE          = LEAF_NODE_KEY_SIZE + LEAF_NODE_VAL
 const uint32_t LEAF_NODE_SPACE_FOR_CELLS    = PAGE_SIZE - LEAF_NODE_HEADER_SIZE;
 const uint32_t LEAF_NODE_MAX_CELLS          = LEAF_NODE_SPACE_FOR_CELLS / LEAF_NODE_CELL_SIZE;
 
+/* 
+    To keep the tree balanced, we evenly distribute cells between the two new nodes. 
+    If a leaf node can hold N cells, then during a split we need to distribute N+1 cells 
+    between two nodes (N original cells plus one new one). I’m arbitrarily choosing the 
+    left node to get one more cell if N+1 is odd.
+*/
+const uint32_t LEAF_NODE_RIGHT_SPLIT_COUNT  = (LEAF_NODE_MAX_CELLS + 1) / 2;
+const uint32_t LEAF_NODE_LEFT_SPLIT_COUNT   = (LEAF_NODE_MAX_CELLS + 1) - LEAF_NODE_RIGHT_SPLIT_COUNT;
+
+
+
+
+
+
 // through the Pager
 typedef struct
 {
@@ -218,6 +232,11 @@ initialize_leaf_node(void* node)
     *leaf_node_num_cells(node) = 0;
 }
 
+bool
+is_node_root(void* node);
+
+void*
+create_new_root(Table* table, uint32_t page_num);
 
 void*
 get_page(Pager* pager, uint32_t page_num);
@@ -470,10 +489,18 @@ pager_open(const char* filename)
     return pager;
 }
 
+
+/*
+    until we start recycling free pages, new pages will always 
+    go onto the end of the database file.
+    For now we're assuming that in a database with N pages, page
+    number 0 through N-1 are allocated. Therefore we can always 
+    allocate page number N for new pages.
+*/
 uint32_t
 get_unused_page_num(Pager* pager)
 {
-
+    return pager->num_pages;
 }
 
 /* 
@@ -495,6 +522,50 @@ leaf_node_split_and_insert(Cursor* cursor,uint32_t key, Row* value)
    uint32_t new_page_num = get_unused_page_num(cursor->table->pager);
    void* new_node = get_page(cursor->table->pager, new_page_num);
    initialize_leaf_node(new_node);
+
+    // next copy every cell into its new location
+    /*
+        All existing keys plus new key should be devided
+        evenly between old (left) and new (right) nodes.
+        Starting from the right, move each key to correct position.
+    */
+    for(uint32_t i = LEAF_NODE_MAX_CELLS; i >= 0; i--){
+        void* destination_node;
+        if(i >= LEAF_NODE_LEFT_SPLIT_COUNT){
+            destination_node = new_node;
+        }
+        else{
+            destination_node = old_node;
+        }
+
+        uint32_t index_within_node = i % LEAF_NODE_LEFT_SPLIT_COUNT;
+        void* destination = leaf_node_cell(destination_node, index_within_node);
+
+        if(i == cursor->cell_num){
+            serialize_row(value, destination);
+        }
+        else if(i > cursor->cell_num){
+            memcpy(destination, leaf_node_cell(old_node, i -1), LEAF_NODE_CELL_SIZE);
+        }
+        else{
+            memcpy(destination, leaf_node_cell(old_node, i -1), LEAF_NODE_CELL_SIZE);
+        }
+    }
+
+    // update cell count on both leaf nodes
+    *(leaf_node_num_cells(old_node)) = LEAF_NODE_LEFT_SPLIT_COUNT;
+    *(leaf_node_num_cells(new_node)) = LEAF_NODE_RIGHT_SPLIT_COUNT;
+
+    // if orginal node was root, it had no parent. we create a new node
+    // to act as root.
+    if(is_node_root(old_node)){
+        return create_new_root(cursor->table, new_page_num);
+    }
+    else{
+        printf("Need to implement updating parent after split\n");
+        exit(EXIT_FAILURE);
+    }
+
 }
 
 
