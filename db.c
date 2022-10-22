@@ -12,6 +12,128 @@
 #include <stdbool.h>
 
 
+#define COLUMN_USERNAME_SIZE    32
+#define COLUMN_EMAIL_SIZE       255
+
+
+typedef struct
+{
+
+    uint32_t    id;
+    char        username[COLUMN_USERNAME_SIZE + 1];
+    char        email[COLUMN_EMAIL_SIZE + 1];
+
+} Row;
+
+
+
+
+
+// Table Row Constants
+
+#define size_of_attribute(Struct, Attribute) sizeof(((Struct*)0)->Attribute)
+
+const uint32_t USERNAME_SIZE    = size_of_attribute(Row, username);
+const uint32_t ID_SIZE          = size_of_attribute(Row, id);
+const uint32_t EMAIL_SIZE       = size_of_attribute(Row, email);
+
+const uint32_t ID_OFFSET        = 0;
+const uint32_t USERNAME_OFFSET  = ID_OFFSET + ID_SIZE;
+const uint32_t EMAIL_OFFSET     = USERNAME_OFFSET + USERNAME_SIZE;
+
+const uint32_t ROW_SIZE         = ID_SIZE + USERNAME_SIZE + ID_SIZE;
+const uint32_t PAGE_SIZE        = 4096;
+
+#define TABLE_MAX_PAGES         100
+
+
+// the pager accesses the page cache and the file.
+// the Table object will make requests for pages 
+// B-Tree constants
+
+/*
+ * Nodes need to store some metadata in a header at the begining
+ * of the page. 
+ * Common Node Header Layout
+*/
+const uint32_t NODE_TYPE_SIZE               = sizeof(uint8_t);
+const uint32_t NODE_TYPE_OFFSET             = 0;
+const uint32_t IS_ROOT_SIZE                 = sizeof(uint8_t);
+const uint32_t IS_ROOT_OFFSET               = NODE_TYPE_SIZE;
+const uint32_t PARENT_POINTER_SIZE          = sizeof(uint32_t);
+const uint32_t PARENT_POINTER_OFFSET        = IS_ROOT_OFFSET + IS_ROOT_SIZE;
+const uint32_t COMMON_NODE_HEADER_SIZE      = NODE_TYPE_SIZE + IS_ROOT_SIZE + PARENT_POINTER_SIZE;
+
+
+
+// ***********************LEAF NODE FORMAT*******************************************************
+
+/*
+ * in addition to these common header files, leaf nodes need to
+ * store how many "cells" they contain.
+ * a "cell" is a key/value pair
+ * Leaf Node Header Layout  
+*/
+const uint32_t LEAF_NODE_NUM_CELLS_SIZE     = sizeof(uint32_t);
+const uint32_t LEAF_NODE_NUM_CELLS_OFFSET   = COMMON_NODE_HEADER_SIZE;
+const uint32_t LEAF_NODE_HEADER_SIZE        = COMMON_NODE_HEADER_SIZE + LEAF_NODE_NUM_CELLS_SIZE;
+
+
+/*
+ * the body of a leaf node is an array of cells.
+ * each cell is a key followed by a value (a serialized row).
+ * Leaf Node Body Layout
+*/
+const uint32_t LEAF_NODE_KEY_SIZE           = sizeof(uint32_t);
+const uint32_t LEAF_NODE_KEY_OFFSET         = 0;
+const uint32_t LEAF_NODE_VALUE_SIZE         = ROW_SIZE;
+const uint32_t LEAF_NODE_VALUE_OFFSET       = LEAF_NODE_KEY_OFFSET + LEAF_NODE_KEY_SIZE;
+const uint32_t LEAF_NODE_CELL_SIZE          = LEAF_NODE_KEY_SIZE + LEAF_NODE_VALUE_SIZE;
+const uint32_t LEAF_NODE_SPACE_FOR_CELLS    = PAGE_SIZE - LEAF_NODE_HEADER_SIZE;
+const uint32_t LEAF_NODE_MAX_CELLS          = LEAF_NODE_SPACE_FOR_CELLS / LEAF_NODE_CELL_SIZE;
+
+/* 
+    To keep the tree balanced, we evenly distribute cells between the two new nodes. 
+    If a leaf node can hold N cells, then during a split we need to distribute N+1 cells 
+    between two nodes (N original cells plus one new one). I’m arbitrarily choosing the 
+    left node to get one more cell if N+1 is odd.
+*/
+const uint32_t LEAF_NODE_RIGHT_SPLIT_COUNT  = (LEAF_NODE_MAX_CELLS + 1) / 2;
+const uint32_t LEAF_NODE_LEFT_SPLIT_COUNT   = (LEAF_NODE_MAX_CELLS + 1) - LEAF_NODE_RIGHT_SPLIT_COUNT;
+
+
+
+// ***********************INTERNAL NODE FORMAT*******************************************************
+
+/*
+    An internal node starts with the common header. then the number of keys it contains,
+    then the page number of it's right most child. Internal nodes always have one more 
+    child pointer than they have keys. that extra child pointer is stored in the header.
+*/
+
+const uint32_t INTERNAL_NODE_NUM_KEYS_SIZE          = sizeof(uint32_t);
+const uint32_t INTERNAL_NODE_NUM_KEYS_OFFSET        = COMMON_NODE_HEADER_SIZE;
+const uint32_t INTERNAL_NODE_RIGHT_CHILD_SIZE       = sizeof(uint32_t);
+const uint32_t INTERNAL_NODE_RIGHT_CHILD_OFFSET     = INTERNAL_NODE_NUM_KEYS_OFFSET 
+                                                        + INTERNAL_NODE_NUM_KEYS_SIZE;
+const uint32_t INTERNAL_NODE_HEADER_SIZE            = COMMON_NODE_HEADER_SIZE 
+                                                        + INTERNAL_NODE_NUM_KEYS_SIZE 
+                                                        + INTERNAL_NODE_RIGHT_CHILD_SIZE;
+
+/*
+    the body is an array of cells where each cell contains a child pointer and
+    a key. Every key should be the maximum key contained in the child to its left
+*/
+
+// internal node body layout
+const uint32_t INTERNAL_NODE_KEY_SIZE               = sizeof(uint32_t);
+const uint32_t INTERNAL_NODE_CHILD_SIZE             = sizeof(uint32_t);
+const uint32_t INTERNAL_NODE_CELL_SIZE              = INTERNAL_NODE_KEY_SIZE + INTERNAL_NODE_CHILD_SIZE;
+
+
+// ---------------------------------------------------------------------------------------------
+
+
 // leaf nodes and internal nodes have different layouts
 typedef enum
 {
@@ -59,6 +181,12 @@ typedef enum{
 
 
 
+typedef struct {
+
+    StatementType   type;
+    Row             row_to_insert; // only used by insert statement
+
+} Statement;
 
 typedef enum
 {
@@ -68,103 +196,6 @@ typedef enum
     EXECUTE_DUPLICATE_KEY
 
 } ExecuteResult;
-
-
-#define COLUMN_USERNAME_SIZE    32
-#define COLUMN_EMAIL_SIZE       255
-
-typedef struct
-{
-
-    uint32_t    id;
-    char        username[COLUMN_USERNAME_SIZE + 1];
-    char        email[COLUMN_EMAIL_SIZE + 1];
-
-} Row;
-
-typedef struct {
-
-    StatementType   type;
-    Row             row_to_insert; // only used by insert statement
-
-} Statement;
-
-
-
-
-// Table Row Constants
-
-#define size_of_attribute(Struct, Attribute) sizeof(((Struct*)0)->Attribute)
-
-const uint32_t USERNAME_SIZE    = size_of_attribute(Row, username);
-const uint32_t ID_SIZE          = size_of_attribute(Row, id);
-const uint32_t EMAIL_SIZE       = size_of_attribute(Row, email);
-
-const uint32_t ID_OFFSET        = 0;
-const uint32_t USERNAME_OFFSET  = ID_OFFSET + ID_SIZE;
-const uint32_t EMAIL_OFFSET     = USERNAME_OFFSET + USERNAME_SIZE;
-
-const uint32_t ROW_SIZE         = ID_SIZE + USERNAME_SIZE + ID_SIZE;
-const uint32_t PAGE_SIZE        = 4096;
-
-#define TABLE_MAX_PAGES         100
-
-
-// the pager accesses the page cache and the file.
-// the Table object will make requests for pages 
-// B-Tree constants
-
-/*
- * Nodes need to store some metadata in a header at the begining
- * of the page. 
- * Common Node Header Layout
-*/
-const uint32_t NODE_TYPE_SIZE               = sizeof(uint8_t);
-const uint32_t NODE_TYPE_OFFSET             = 0;
-const uint32_t IS_ROOT_SIZE                 = sizeof(uint8_t);
-const uint32_t IS_ROOT_OFFSET               = NODE_TYPE_OFFSET;
-const uint32_t PARENT_POINTER_SIZE          = sizeof(uint32_t);
-const uint32_t PARENT_POINTER_OFFSET        = IS_ROOT_OFFSET + IS_ROOT_SIZE;
-const uint32_t COMMON_NODE_HEADER_SIZE      = NODE_TYPE_SIZE + IS_ROOT_SIZE + PARENT_POINTER_SIZE;
-
-
-/*
- * in addition to these common header files, leaf nodes need to
- * store how many "cells" they contain.
- * a "cell" is a key/value pair
- * Leaf Node Header Layout  
-*/
-const uint32_t LEAF_NODE_NUM_CELLS_SIZE     = sizeof(uint32_t);
-const uint32_t LEAF_NODE_NUM_CELLS_OFFSET   = COMMON_NODE_HEADER_SIZE;
-const uint32_t LEAF_NODE_HEADER_SIZE        = COMMON_NODE_HEADER_SIZE + LEAF_NODE_NUM_CELLS_SIZE;
-
-
-/*
- * the body of a leaf node is an array of cells.
- * each cell is a key followed by a value (a serialized row).
- * Leaf Node Body Layout
-*/
-const uint32_t LEAF_NODE_KEY_SIZE           = sizeof(uint32_t);
-const uint32_t LEAF_NODE_KEY_OFFSET         = 0;
-const uint32_t LEAF_NODE_VALUE_SIZE         = ROW_SIZE;
-const uint32_t LEAF_NODE_VALUE_OFFSET       = LEAF_NODE_KEY_OFFSET + LEAF_NODE_KEY_SIZE;
-const uint32_t LEAF_NODE_CELL_SIZE          = LEAF_NODE_KEY_SIZE + LEAF_NODE_VALUE_SIZE;
-const uint32_t LEAF_NODE_SPACE_FOR_CELLS    = PAGE_SIZE - LEAF_NODE_HEADER_SIZE;
-const uint32_t LEAF_NODE_MAX_CELLS          = LEAF_NODE_SPACE_FOR_CELLS / LEAF_NODE_CELL_SIZE;
-
-/* 
-    To keep the tree balanced, we evenly distribute cells between the two new nodes. 
-    If a leaf node can hold N cells, then during a split we need to distribute N+1 cells 
-    between two nodes (N original cells plus one new one). I’m arbitrarily choosing the 
-    left node to get one more cell if N+1 is odd.
-*/
-const uint32_t LEAF_NODE_RIGHT_SPLIT_COUNT  = (LEAF_NODE_MAX_CELLS + 1) / 2;
-const uint32_t LEAF_NODE_LEFT_SPLIT_COUNT   = (LEAF_NODE_MAX_CELLS + 1) - LEAF_NODE_RIGHT_SPLIT_COUNT;
-
-
-
-
-
 
 // through the Pager
 typedef struct
@@ -201,41 +232,153 @@ typedef struct
 uint32_t*
 leaf_node_num_cells(void* node)
 {
+
     return node + LEAF_NODE_NUM_CELLS_OFFSET;
+
 }
 
 
 void*
 leaf_node_cell(void* node, uint32_t cell_num)
 {
+
     return node + LEAF_NODE_HEADER_SIZE + (cell_num * LEAF_NODE_CELL_SIZE);
+
 }
 
 
 uint32_t*
 leaf_node_key(void* node, uint32_t cell_num)
 {
+
     return leaf_node_cell(node, cell_num);   
+
 }
 
 void*
 leaf_node_value (void* node, uint32_t cell_num)
 {
+
     return leaf_node_cell(node, cell_num) + LEAF_NODE_KEY_SIZE;
+
 }
 
+
+
+uint32_t*
+internal_node_cell(void* node, uint32_t cell_num)
+{
+
+    return node + INTERNAL_NODE_HEADER_SIZE + (INTERNAL_NODE_CELL_SIZE * cell_num);
+
+}
+
+
+uint32_t*
+internal_node_num_keys(void* node)
+{
+
+   return node + INTERNAL_NODE_NUM_KEYS_OFFSET; 
+
+}
+
+uint32_t*
+internal_node_key(void* node, uint32_t key_num)
+{
+
+    return internal_node_cell(node, key_num) + INTERNAL_NODE_CHILD_SIZE;
+
+}
+
+uint32_t*
+internal_node_right_child(void* node)
+{
+
+    return node + INTERNAL_NODE_RIGHT_CHILD_OFFSET;
+
+}
+
+uint32_t*
+internal_node_child(void* node, uint32_t child_num)
+{
+
+    uint32_t num_keys = internal_node_num_keys(node);
+    if(child_num > num_keys){
+        printf("Tried to access child num %d > num keys %d\n", child_num, num_keys);
+        exit(EXIT_FAILURE);
+    }
+    else if(child_num == num_keys){
+        return internal_node_right_child(node);
+    }
+    else{
+        return internal_node_cell(node, child_num);
+    }
+
+}
+
+bool
+is_node_root(void* node)
+{
+
+    uint32_t value = *((uint8_t*)(node + IS_ROOT_OFFSET));
+    return (bool)value;
+
+}
+
+void
+set_node_root(void* node, bool is_root)
+{
+
+    uint8_t value = is_root;
+    *((uint8_t*)(node + IS_ROOT_OFFSET)) = value;
+    return;
+
+}
 
 void
 initialize_leaf_node(void* node)
 {
+
     set_node_type(node, NODE_LEAF);
+    set_node_root(node, false);
     *leaf_node_num_cells(node) = 0;
+    return;
+
 }
 
-bool
-is_node_root(void* node);
+void 
+initialize_internal_node(void* node)
+{
+    set_node_type(node, NODE_INTERNAL);
+    set_node_root(node, false);
+    *internal_node_num_keys(node) = 0;
+}
 
-void*
+NodeType
+get_node_type(void* node)
+{
+    uint8_t value = *((uint8_t*)(node + NODE_TYPE_OFFSET));
+    return (NodeType)value;
+}
+
+/*
+    for an internal node, the max key is always it's right key.
+    for a leaf node, its the key at the maximum index
+*/
+uint32_t
+get_node_max_key(void* node)
+{
+
+    switch (get_node_type(node)){
+        case NODE_INTERNAL:
+            return *internal_node_key(node, *internal_node_num_keys(node) - 1);
+        case NODE_LEAF:
+            return leaf_node_key(node, *leaf_node_num_cells(node) - 1);
+    }
+
+}
+
+void
 create_new_root(Table* table, uint32_t page_num);
 
 void*
@@ -244,6 +387,7 @@ get_page(Pager* pager, uint32_t page_num);
 Cursor*
 table_start(Table* table)
 {
+
     Cursor* cursor = (Cursor*)malloc(sizeof(Cursor));
     cursor->table = table;
 
@@ -256,15 +400,10 @@ table_start(Table* table)
     cursor->end_of_table = (num_cells == 0);
 
     return cursor;
+
 }
 
 
-NodeType
-get_node_type(void* node)
-{
-    uint8_t value = *((uint8_t*)(node + NODE_TYPE_OFFSET));
-    return (NodeType)value;
-}
 
 
 void
@@ -279,13 +418,13 @@ set_node_type(void* node, NodeType type)
 Cursor*
 leaf_node_find(Table* table, uint32_t page_num, uint32_t key)
 {
+
     void* node = get_page(table->pager, page_num);
     uint32_t num_cells = *leaf_node_num_cells(node);
 
     Cursor* cursor = (Cursor*)malloc(sizeof(Cursor));
     cursor->table = table;
     cursor->page_num = page_num;
-
 
     // binary search
     uint32_t min_index = 0;
@@ -306,6 +445,7 @@ leaf_node_find(Table* table, uint32_t page_num, uint32_t key)
 
     cursor->cell_num = min_index;
     return cursor;
+
 }
 
 
@@ -503,6 +643,44 @@ get_unused_page_num(Pager* pager)
     return pager->num_pages;
 }
 
+// void
+// set_node_root(void* page, bool is_root)
+// {
+// }
+
+
+void
+create_new_root(Table* table, uint32_t right_child_page_num)
+{
+
+    /*
+        Handle splitting the root.
+        Old root copied to new page, becomes left child.
+        Address of right child passed in.
+        Re-initialize root page to contain the new root node.
+        new root node points to two children.
+    */    
+
+    void* root = get_page(table, table->root_page_num);
+    void* right_child = get_page(table, right_child_page_num);
+    uint32_t left_child_page_num = get_unused_page_num(table->pager);
+    void* left_child = get_page(table, left_child_page_num);
+
+    // old root is copied to the left child so we can reuse the root page
+    memcpy(left_child, root, PAGE_SIZE);
+    set_node_root(left_child, false);
+
+    // we then initialize the root node as a new internal node with 2 children
+    // root  node is a new internal node with 1 key and 2 children
+    initialize_internal_node(root);
+    set_node_root(root, true);
+    *internal_node_num_keys(root) = 1;
+    *internal_node_child(root, 0) = left_child_page_num;
+    uint32_t left_child_max_key = get_node_max_key(left_child);
+    *internal_node_key(root, 0) = left_child_max_key;
+    *internal_node_right_child(root) = right_child_page_num;
+}
+
 /* 
     If there is no space on the leaf node, we would split the existing entries residing there and 
     the new one (being inserted) into two equal halves: lower and upper halves. 
@@ -610,6 +788,7 @@ db_open(const char* filename)
       // new database file. Initialize page 0 as leaf node.  
       void* root_node = get_page(pager, 0);
       initialize_leaf_node(root_node);
+      set_node_root(root_node, true);
     }
     
 
@@ -620,6 +799,7 @@ db_open(const char* filename)
 void
 db_close(Table* table)
 {
+
     Pager* pager = table->pager;
 
     for(uint32_t i = 0; i < pager->num_pages; i++){
@@ -647,23 +827,81 @@ db_close(Table* table)
     }
 
     free(pager);
-    free(table);    
+    free(table);
+
 }
 
-void print_leaf_node(void* node) {
-    uint32_t num_cells = *leaf_node_num_cells(node);
-    printf("leaf (size %d)\n", num_cells);
-    for (uint32_t i = 0; i < num_cells; i++) {
-        uint32_t key = *leaf_node_key(node, i);
-        printf("  - %d : %d\n", i, key);
+// void print_leaf_node(void* node) {
+//     uint32_t num_cells = *leaf_node_num_cells(node);
+//     printf("leaf (size %d)\n", num_cells);
+//     for (uint32_t i = 0; i < num_cells; i++) {
+//         uint32_t key = *leaf_node_key(node, i);
+//         printf("  - %d : %d\n", i, key);
+//     }
+
+//     return;
+// }
+
+// we'll use a rexursive function to print a node 
+// and its children. the indentation level increases
+// with each recursive call
+
+void
+indent(uint32_t level)
+{
+
+    for (uint32_t i = 0; i < level; i++){
+        printf("    ");
+    }
+    return;
+
+}
+
+
+void 
+print_tree(Pager* pager, uint32_t page_num, uint32_t indentation_level)
+{
+
+    void* node = get_page(pager, page_num);
+    uint32_t num_keys, child;
+
+    switch (get_node_type(node))
+    {
+    case NODE_LEAF:
+        num_keys = *leaf_node_num_cells(node);
+        indent(indentation_level);
+        printf("- leaf (size %d)\n", num_keys);
+        for(uint32_t i = 0; i < num_keys; i++){
+            indent(indentation_level + 1);
+            printf("- %d\n", *leaf_node_key(node, i));
+        }
+        break;
+
+    case NODE_INTERNAL:
+        num_keys = *internal_node_num_keys(node);
+        indent(indentation_level);
+        printf("- internal (size %d)\n", num_keys);
+        for(uint32_t i = 0; i < num_keys; i++){
+            child = *internal_node_child(node, i);
+            print_tree(pager, child, indentation_level + 1);
+
+            indent(indentation_level + 1);
+            printf("- key %d\n", *internal_node_key(node, i));
+        }
+        child = *internal_node_right_child(node);
+        print_tree(pager, child, indentation_level + 1);
+        break;
     }
 
-    return;
 }
+
+
+
 
 MetaCommandResult 
 do_meta_command(InputBuffer* input_buffer, Table* table)
 {
+
     if(strcmp(input_buffer->buffer, ".exit") == 0){
         close_input_buffer(input_buffer);
         db_close(table);
@@ -671,7 +909,7 @@ do_meta_command(InputBuffer* input_buffer, Table* table)
     }
     else if (strcmp(input_buffer->buffer, ".btree") == 0) {
         printf("Tree:\n");
-        print_leaf_node(get_page(table->pager, 0));
+        print_tree(table->pager, 0, 0);
         return META_COMMAND_SUCCESS;
     }
     else if(strcmp(input_buffer->buffer, ".constants") == 0){
@@ -681,7 +919,8 @@ do_meta_command(InputBuffer* input_buffer, Table* table)
     }
     else{
         return META_COMMAND_UNRECOGNIZED_COMMAND;
-    }    
+    }
+
 }
 
 PrepareResult
